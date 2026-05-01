@@ -70,6 +70,18 @@ export default function TvPage() {
           if (mounted && role === 'remote') setStatus('waiting');
         });
 
+        socket.on('tune', ({ channel, video, offsetSec }) => {
+  if (!mounted) return;
+  setCurrentChannel(channel);
+  setCurrentVideo({
+    youtubeId: video.youtubeId,
+    title: video.title,
+    offsetSec,
+  });
+  channelRef.current = channel;
+  setBadgeKey((k) => k + 1);
+});
+
         // Step 7 will add: socket.on('channel_change', ({ channel }) => tune(channel));
       } catch (err) {
         if (mounted) {

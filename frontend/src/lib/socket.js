@@ -34,3 +34,15 @@ export function disconnectSocket() {
 export function getSocket() {
   return currentSocket;
 }
+
+export function emitChannelChange(payload) {
+  if (currentSocket) {
+    currentSocket.emit('channel_change', payload);
+  }
+}
+
+export function emitPowerOff() {
+  if (currentSocket) {
+    currentSocket.emit('power_off');
+  }
+}

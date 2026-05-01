@@ -107,8 +107,93 @@ export function createSocketServer(httpServer) {
       socket.to(room).emit('peer-disconnected', { role });
     });
 
-    // ---- Step 4 placeholder events ----
-    // Real channel-change handler comes in Step 6
+    // ---- Channel change events (Step 7) ----
+    socket.on('channel_change', async (payload) => {
+      // Only the Remote should send channel changes
+      if (role !== 'remote') {
+        return;
+      }
+
+      try {
+        const { channel: targetChannel, direction } = payload || {};
+
+        // Get current session to know what channel we're on
+        const session = await prisma.session.findUnique({
+          where: { id: sessionId },
+          select: { currentChannelId: true },
+        });
+
+        let newChannelNumber;
+
+        if (direction === 'up' || direction === 'down') {
+          // Compute next/prev channel number
+          const allChannels = await prisma.channel.findMany({
+            orderBy: { number: 'asc' },
+            select: { id: true, number: true },
+          });
+          const currentIdx = session.currentChannelId
+            ? allChannels.findIndex((c) => c.id === session.currentChannelId)
+            : 0;
+          const delta = direction === 'up' ? 1 : -1;
+          const nextIdx = (currentIdx + delta + allChannels.length) % allChannels.length;
+          newChannelNumber = allChannels[nextIdx].number;
+        } else if (typeof targetChannel === 'number') {
+          newChannelNumber = targetChannel;
+        } else {
+          console.warn('[socket] invalid channel_change payload:', payload);
+          return;
+        }
+
+        // Look up the channel and fetch a video
+        const channel = await prisma.channel.findUnique({
+          where: { number: newChannelNumber },
+          select: { id: true, number: true, name: true },
+        });
+        if (!channel) {
+          socket.emit('error_message', { message: `No channel ${newChannelNumber}` });
+          return;
+        }
+
+        const candidates = await prisma.videoPool.findMany({
+          where: { channelId: channel.id, isBroken: false },
+          select: { youtubeId: true, title: true, durationSec: true },
+        });
+        if (candidates.length === 0) {
+          socket.emit('error_message', { message: `No videos for ${channel.name}` });
+          return;
+        }
+
+        const pick = candidates[Math.floor(Math.random() * candidates.length)];
+        const offsetSec = Math.floor(Math.random() * Math.max(1, pick.durationSec - 30));
+
+        // Persist current channel on the session
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { currentChannelId: channel.id, lastActivity: new Date() },
+        });
+
+        // Broadcast the tune event to everyone in the room (TV + Remote both get it)
+        io.to(room).emit('tune', {
+          channel,
+          video: {
+            youtubeId: pick.youtubeId,
+            title: pick.title,
+            durationSec: pick.durationSec,
+          },
+          offsetSec,
+        });
+      } catch (err) {
+        console.error('[socket.channel_change] error:', err);
+        socket.emit('error_message', { message: 'Channel change failed' });
+      }
+    });
+
+    // ---- Power off (Remote disconnect intent) ----
+    socket.on('power_off', () => {
+      if (role !== 'remote') return;
+      // Just disconnect this socket; TV's peer-disconnected handler will fire
+      socket.disconnect(true);
+    });
     socket.on('ping', () => socket.emit('pong', { time: Date.now() }));
   });
 
