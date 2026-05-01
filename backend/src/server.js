@@ -3,6 +3,7 @@ import pino from 'pino';
 import { env } from './config/env.js';
 import { createApp } from './app.js';
 import { createSocketServer } from './socket.js';
+import { startCleanupJob } from './jobs/cleanup.js';
 
 const logger = pino({
   transport: env.isDev
@@ -12,9 +13,10 @@ const logger = pino({
 
 const app = createApp();
 const httpServer = http.createServer(app);
-const io = createSocketServer(httpServer);
+createSocketServer(httpServer);
 
 httpServer.listen(env.port, () => {
+  startCleanupJob(logger);
   logger.info(`🎬 ReLiveTV backend running on http://localhost:${env.port}`);
   logger.info(`🔌 Socket.IO ready, accepting connections`);
   logger.info(`🌐 CORS allowed origin: ${env.frontendUrl}`);

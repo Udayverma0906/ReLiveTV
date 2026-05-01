@@ -23,9 +23,13 @@ function vibrate(ms = 30) {
 export default function RemotePage() {
   const navigate = useNavigate();
   const [code, setCode] = useState('');
-  const [status, setStatus] = useState('idle'); // idle | connecting | paired | error
+  const [status, setStatus] = useState('idle');
+  // idle | connecting | paired | tv-reconnecting | error
+
   const [error, setError] = useState(null);
   const [activeChannel, setActiveChannel] = useState(null);
+  const [reconnectTimer, setReconnectTimer] = useState(null);
+  const [errorFlash, setErrorFlash] = useState(null);
 
   useEffect(() => {
     return () => disconnectSocket();
@@ -49,12 +53,28 @@ export default function RemotePage() {
         setStatus('error');
       });
 
-      socket.on('paired', () => setStatus('paired'));
+      // Pair & re-pair (cancels reconnect timer if TV came back)
+      socket.on('paired', () => {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+          setReconnectTimer(null);
+        }
+        setStatus('paired');
+      });
 
-      socket.on('peer-disconnected', ({ role: peerRole }) => {
+      socket.on('peer-disconnected', ({ role: peerRole, reconnectGraceMs }) => {
         if (peerRole === 'tv') {
-          setError('TV disconnected');
-          setStatus('error');
+          if (reconnectGraceMs) {
+            setStatus('tv-reconnecting');
+            const t = setTimeout(() => {
+              setStatus((s) => (s === 'tv-reconnecting' ? 'error' : s));
+              setError('TV disconnected');
+            }, reconnectGraceMs);
+            setReconnectTimer(t);
+          } else {
+            setError('TV disconnected');
+            setStatus('error');
+          }
         }
       });
 
@@ -63,8 +83,8 @@ export default function RemotePage() {
       });
 
       socket.on('error_message', ({ message }) => {
-        // Brief flash of error; not blocking
-        console.warn('[remote]', message);
+        setErrorFlash(message);
+        setTimeout(() => setErrorFlash(null), 3000);
       });
     } catch (err) {
       setError(err.message);
@@ -93,6 +113,18 @@ export default function RemotePage() {
     disconnectSocket();
     navigate('/');
   };
+
+  // ---- TV reconnecting view ----
+  if (status === 'tv-reconnecting') {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6">
+        <div className="text-center">
+          <h1 className="text-3xl mb-3">📺 TV reconnecting…</h1>
+          <p className="text-slate-400 text-sm animate-pulse">Hold tight</p>
+        </div>
+      </div>
+    );
+  }
 
   // ---- Code entry view ----
   if (status !== 'paired') {
@@ -139,6 +171,13 @@ export default function RemotePage() {
   // ---- Paired remote view ----
   return (
     <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-4">
+      {/* Error flash banner — fixed top, above everything */}
+      {errorFlash && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-red-600 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-40">
+          {errorFlash}
+        </div>
+      )}
+
       {/* Physical-remote-style body */}
       <div className="w-full max-w-xs bg-gradient-to-b from-slate-700 to-slate-900 rounded-[2.5rem] p-6 shadow-2xl border border-slate-600">
 
@@ -162,7 +201,6 @@ export default function RemotePage() {
           </RemoteButton>
         </div>
 
-        {/* Divider */}
         <div className="h-px bg-slate-600 mb-6" />
 
         {/* Channel grid */}
@@ -178,11 +216,9 @@ export default function RemotePage() {
               <span className="text-xs mt-1">{ch.number}</span>
             </RemoteButton>
           ))}
-          {/* Empty slot for layout balance */}
           <div />
         </div>
 
-        {/* Divider */}
         <div className="h-px bg-slate-600 mb-6" />
 
         {/* Power */}

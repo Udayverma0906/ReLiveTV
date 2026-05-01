@@ -91,22 +91,28 @@ export function createSocketServer(httpServer) {
     }
 
     // ---- Disconnect handler ----
-    socket.on('disconnect', async (reason) => {
-      console.log(`[socket] ${role} disconnected: ${socket.id} (${reason})`);
-      const clear = role === 'tv'
-        ? { tvSocketId: null }
-        : { remoteSocketId: null };
-      try {
-        await prisma.session.update({
-          where: { id: sessionId },
-          data: clear,
-        });
-      } catch (err) {
-        // Session might be gone; ignore
-      }
-      socket.to(room).emit('peer-disconnected', { role });
-    });
+ socket.on('disconnect', async (reason) => {
+  console.log(`[socket] ${role} disconnected: ${socket.id} (${reason})`);
 
+  if (role === 'tv') {
+    // Don't immediately clear tvSocketId — leave session in 'reconnect window'
+    try {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: { tvSocketId: null, lastActivity: new Date() },
+      });
+    } catch {}
+    socket.to(room).emit('peer-disconnected', { role, reconnectGraceMs: 60000 });
+  } else {
+    try {
+      await prisma.session.update({
+        where: { id: sessionId },
+        data: { remoteSocketId: null },
+      });
+    } catch {}
+    socket.to(room).emit('peer-disconnected', { role });
+  }
+});
     // ---- Channel change events (Step 7) ----
     socket.on('channel_change', async (payload) => {
       // Only the Remote should send channel changes
