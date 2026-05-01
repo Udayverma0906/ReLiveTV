@@ -6,21 +6,33 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "populate": "node scripts/populate-video-pool.js"
   },
-  "keywords": ["relivetv", "youtube", "tv"],
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "keywords": [
+    "relivetv",
+    "youtube",
+    "tv"
+  ],
   "author": "Uday",
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "googleapis": "^171.4.0",
     "pino": "^9.4.0",
     "socket.io": "^4.8.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.7",
-    "pino-pretty": "^11.2.2"
+    "pino-pretty": "^11.2.2",
+    "prisma": "^6.19.3",
+    "tsx": "^4.21.0"
   }
 }

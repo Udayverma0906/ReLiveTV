@@ -1,0 +1,104 @@
+// ReLiveTV — Prisma schema
+// Six core tables. Users are managed by Supabase Auth — we don't model
+// them here, but we do reference user IDs (uuid) in sessions.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Channel — the 5 launch channels
+// ============================================================
+model Channel {
+  id          String   @id @default(uuid()) @db.Uuid
+  number      Int      @unique               // 1..5
+  name        String                          // e.g. "Comedy Central"
+  slug        String   @unique                // e.g. "comedy"
+  themeColor  String   @map("theme_color")    // hex like "#e94560"
+  icon        String?                         // optional emoji or icon name
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  videos          VideoPool[]
+  scheduleEntries ScheduleEntry[]
+  sessions        Session[]
+
+  @@map("channels")
+}
+
+// ============================================================
+// VideoPool — curated source videos per channel
+// The schedule generator picks from here.
+// ============================================================
+model VideoPool {
+  id              String   @id @default(uuid()) @db.Uuid
+  channelId       String   @map("channel_id") @db.Uuid
+  youtubeId       String   @map("youtube_id")              // YouTube video ID, e.g. "dQw4w9WgXcQ"
+  title           String
+  durationSec     Int      @map("duration_sec")             // length of the video in seconds
+  isBroken        Boolean  @default(false) @map("is_broken")// true if marked unembeddable
+  addedAt         DateTime @default(now()) @map("added_at")
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, youtubeId])    // a video can't be in the same channel twice
+  @@index([channelId, isBroken])       // schedule generator filters here
+  @@map("video_pool")
+}
+
+// ============================================================
+// ScheduleEntry — the timeline of what plays when
+// Generated nightly, ~24h ahead per channel.
+// ============================================================
+model ScheduleEntry {
+  id             String   @id @default(uuid()) @db.Uuid
+  channelId      String   @map("channel_id") @db.Uuid
+  videoYoutubeId String   @map("video_youtube_id")
+  title          String
+  durationSec    Int      @map("duration_sec")
+  startTime      DateTime @map("start_time")
+  endTime        DateTime @map("end_time")
+  fallbackId     String?  @map("fallback_id")              // optional fallback YT id
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, startTime, endTime])  // hot path: "what's playing now?"
+  @@map("schedule_entries")
+}
+
+// ============================================================
+// Session — one TV/Remote pairing
+// ============================================================
+model Session {
+  id                 String    @id @default(uuid()) @db.Uuid
+  code               String    @unique                       // 6-char pairing code
+  userId             String?   @map("user_id") @db.Uuid     // Supabase auth user id
+  tvSocketId         String?   @map("tv_socket_id")
+  remoteSocketId     String?   @map("remote_socket_id")
+  currentChannelId   String?   @map("current_channel_id") @db.Uuid
+  lastActivity       DateTime  @default(now()) @map("last_activity")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  currentChannel Channel? @relation(fields: [currentChannelId], references: [id], onDelete: SetNull)
+
+  @@index([code])
+  @@map("sessions")
+}
+
+// ============================================================
+// BrokenVideo — audit log of videos that failed to embed
+// ============================================================
+model BrokenVideo {
+  id         String   @id @default(uuid()) @db.Uuid
+  youtubeId  String   @map("youtube_id")
+  errorCode  Int      @map("error_code")     // 101 or 150 typically
+  markedAt   DateTime @default(now()) @map("marked_at")
+
+  @@index([youtubeId])
+  @@map("broken_videos")
+}
