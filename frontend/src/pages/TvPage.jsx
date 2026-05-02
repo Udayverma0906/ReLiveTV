@@ -13,7 +13,7 @@ import CrtOverlay from '../components/CrtOverlay';
 const SESSION_KEY = 'rlt-tv-session';
 
 // Idle timing — for testing, drop these to seconds
-const IDLE_MS = 30 * 1000;     // 2 hours of no input → show prompt
+const IDLE_MS = 2 * 60 * 60 * 1000;     // 2 hours of no input → show prompt
 const PROMPT_GRACE_MS = 30 * 1000;       // 30s to respond before hard disconnect
 
 export default function TvPage() {
