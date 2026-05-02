@@ -9,10 +9,15 @@ import channelsRouter from './routes/channels.js';
 export function createApp() {
   const app = express();
   
-  app.use(cors({
-    origin: env.frontendUrl,
-    credentials: true,
-  }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. curl, Postman)
+    if (!origin) return callback(null, true);
+    if (env.frontendUrls.includes(origin)) return callback(null, true);
+    return callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
+  credentials: true,
+}));
 
   app.use(express.json());
 

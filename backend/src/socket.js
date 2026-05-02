@@ -6,7 +6,7 @@ import { prisma } from './lib/prisma.js';
 export function createSocketServer(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: env.frontendUrl,
+      origin: env.frontendUrls,
       credentials: true,
     },
   });
@@ -30,7 +30,7 @@ export function createSocketServer(httpServer) {
         where: { code: sessionCode.toUpperCase() },
       });
       if (!session) {
-        return next(new Error('Invalid session code'));
+        return next(new Error('Session expired or invalid'));
       }
 
       // TV must be the same user who created the session
@@ -91,39 +91,36 @@ export function createSocketServer(httpServer) {
     }
 
     // ---- Disconnect handler ----
- socket.on('disconnect', async (reason) => {
-  console.log(`[socket] ${role} disconnected: ${socket.id} (${reason})`);
+    socket.on('disconnect', async (reason) => {
+      console.log(`[socket] ${role} disconnected: ${socket.id} (${reason})`);
 
-  if (role === 'tv') {
-    // Don't immediately clear tvSocketId — leave session in 'reconnect window'
-    try {
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { tvSocketId: null, lastActivity: new Date() },
-      });
-    } catch {}
-    socket.to(room).emit('peer-disconnected', { role, reconnectGraceMs: 60000 });
-  } else {
-    try {
-      await prisma.session.update({
-        where: { id: sessionId },
-        data: { remoteSocketId: null },
-      });
-    } catch {}
-    socket.to(room).emit('peer-disconnected', { role });
-  }
-});
+      if (role === 'tv') {
+        // Don't immediately clear tvSocketId — leave session in 'reconnect window'
+        try {
+          await prisma.session.update({
+            where: { id: sessionId },
+            data: { tvSocketId: null, lastActivity: new Date() },
+          });
+        } catch {}
+        socket.to(room).emit('peer-disconnected', { role, reconnectGraceMs: 60000 });
+      } else {
+        try {
+          await prisma.session.update({
+            where: { id: sessionId },
+            data: { remoteSocketId: null },
+          });
+        } catch {}
+        socket.to(room).emit('peer-disconnected', { role });
+      }
+    });
+
     // ---- Channel change events (Step 7) ----
     socket.on('channel_change', async (payload) => {
-      // Only the Remote should send channel changes
-      if (role !== 'remote') {
-        return;
-      }
+      if (role !== 'remote') return;
 
       try {
         const { channel: targetChannel, direction } = payload || {};
 
-        // Get current session to know what channel we're on
         const session = await prisma.session.findUnique({
           where: { id: sessionId },
           select: { currentChannelId: true },
@@ -132,7 +129,6 @@ export function createSocketServer(httpServer) {
         let newChannelNumber;
 
         if (direction === 'up' || direction === 'down') {
-          // Compute next/prev channel number
           const allChannels = await prisma.channel.findMany({
             orderBy: { number: 'asc' },
             select: { id: true, number: true },
@@ -150,7 +146,6 @@ export function createSocketServer(httpServer) {
           return;
         }
 
-        // Look up the channel and fetch a video
         const channel = await prisma.channel.findUnique({
           where: { number: newChannelNumber },
           select: { id: true, number: true, name: true },
@@ -172,13 +167,11 @@ export function createSocketServer(httpServer) {
         const pick = candidates[Math.floor(Math.random() * candidates.length)];
         const offsetSec = Math.floor(Math.random() * Math.max(1, pick.durationSec - 30));
 
-        // Persist current channel on the session
         await prisma.session.update({
           where: { id: sessionId },
           data: { currentChannelId: channel.id, lastActivity: new Date() },
         });
 
-        // Broadcast the tune event to everyone in the room (TV + Remote both get it)
         io.to(room).emit('tune', {
           channel,
           video: {
@@ -197,9 +190,9 @@ export function createSocketServer(httpServer) {
     // ---- Power off (Remote disconnect intent) ----
     socket.on('power_off', () => {
       if (role !== 'remote') return;
-      // Just disconnect this socket; TV's peer-disconnected handler will fire
       socket.disconnect(true);
     });
+
     socket.on('ping', () => socket.emit('pong', { time: Date.now() }));
   });
 

@@ -8,9 +8,16 @@ for (const key of required) {
   }
 }
 
+// Support comma-separated list of allowed origins
+const frontendUrls = process.env.FRONTEND_URL
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export const env = {
   port: parseInt(process.env.PORT, 10),
-  frontendUrl: process.env.FRONTEND_URL,
+  frontendUrl: frontendUrls[0],          // primary, used in logs
+  frontendUrls,                            // full list for CORS
   nodeEnv: process.env.NODE_ENV,
   isDev: process.env.NODE_ENV === 'development',
   databaseUrl: process.env.DATABASE_URL,

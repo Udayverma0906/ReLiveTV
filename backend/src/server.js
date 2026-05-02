@@ -15,7 +15,7 @@ const app = createApp();
 const httpServer = http.createServer(app);
 createSocketServer(httpServer);
 
-httpServer.listen(env.port, () => {
+httpServer.listen(env.port, '0.0.0.0', () => {
   startCleanupJob(logger);
   logger.info(`🎬 ReLiveTV backend running on http://localhost:${env.port}`);
   logger.info(`🔌 Socket.IO ready, accepting connections`);

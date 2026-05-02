@@ -6,6 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
+    "build": "prisma generate",
     "start": "node src/server.js",
     "populate": "node scripts/populate-video-pool.js"
   },
