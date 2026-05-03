@@ -41,6 +41,14 @@ export function emitChannelChange(payload) {
   }
 }
 
+export function emitVolumeChange(payload) {
+  if (currentSocket) currentSocket.emit('volume_change', payload);
+}
+
+export function emitMuteToggle() {
+  if (currentSocket) currentSocket.emit('mute_toggle');
+}
+
 export function emitPowerOff() {
   if (currentSocket) {
     currentSocket.emit('power_off');

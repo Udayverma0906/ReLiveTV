@@ -193,6 +193,18 @@ export function createSocketServer(httpServer) {
       socket.disconnect(true);
     });
 
+    // ---- Volume + mute relay ----
+socket.on('volume_change', (payload) => {
+  if (role !== 'remote') return;
+  // Just forward to TV in the same room
+  socket.to(room).emit('volume_change', payload);
+});
+
+socket.on('mute_toggle', () => {
+  if (role !== 'remote') return;
+  socket.to(room).emit('mute_toggle');
+});
+
     socket.on('ping', () => socket.emit('pong', { time: Date.now() }));
   });
 

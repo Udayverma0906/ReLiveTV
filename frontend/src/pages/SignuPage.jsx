@@ -21,7 +21,7 @@ export default function SignupPage() {
       if (!session) {
         setDone(true);
       } else {
-        navigate('/tv');
+        navigate('/');
       }
     } catch (err) {
       setError(err.message ?? 'Sign up failed');

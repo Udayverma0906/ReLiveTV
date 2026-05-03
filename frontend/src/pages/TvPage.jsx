@@ -11,26 +11,24 @@ import ChannelBadge from '../components/ChannelBadge';
 import CrtOverlay from '../components/CrtOverlay';
 
 const SESSION_KEY = 'rlt-tv-session';
-
-// Idle timing — for testing, drop these to seconds
-const IDLE_MS = 2 * 60 * 60 * 1000;     // 2 hours of no input → show prompt
-const PROMPT_GRACE_MS = 30 * 1000;       // 30s to respond before hard disconnect
+const IDLE_MS = 2 * 60 * 60 * 1000;
+const PROMPT_GRACE_MS = 30 * 1000;
 
 export default function TvPage() {
   const [code, setCode] = useState(null);
   const [status, setStatus] = useState('initializing');
-  // Possible statuses:
-  // initializing | waiting | paired | idle-disconnected | error
-
   const [error, setError] = useState(null);
   const [currentChannel, setCurrentChannel] = useState(null);
   const [currentVideo, setCurrentVideo] = useState(null);
   const [badgeKey, setBadgeKey] = useState(0);
   const [idlePrompt, setIdlePrompt] = useState(false);
+  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(70);
 
   const channelRef = useRef(null);
   const idleTimerRef = useRef(null);
   const promptTimerRef = useRef(null);
+  const playerRef = useRef(null);
 
   const [crtEnabled, setCrtEnabled] = useState(() => {
     return localStorage.getItem('rlt-crt') !== 'off';
@@ -51,7 +49,6 @@ export default function TvPage() {
     idleTimerRef.current = setTimeout(() => {
       setIdlePrompt(true);
       promptTimerRef.current = setTimeout(() => {
-        // Hard timeout — user didn't respond, end the session
         disconnectSocket();
         localStorage.removeItem(SESSION_KEY);
         setIdlePrompt(false);
@@ -60,9 +57,7 @@ export default function TvPage() {
     }, IDLE_MS);
   };
 
-  const dismissIdlePrompt = () => {
-    resetIdleTimer();
-  };
+  const dismissIdlePrompt = () => resetIdleTimer();
 
   // ---- Tune to a channel ----
   const tune = async (channelNumber) => {
@@ -90,34 +85,24 @@ export default function TvPage() {
       try {
         let session;
 
-        // Try to resume an existing session from localStorage
         const stored = localStorage.getItem(SESSION_KEY);
-        console.log('[tv] stored session in localStorage:', stored);
         if (stored) {
           try {
             const parsed = JSON.parse(stored);
-            console.log('[tv] stored session in localStorage:', stored);
             const res = await fetch(
               `${import.meta.env.VITE_API_URL}/api/sessions/${parsed.code}`
             );
-            console.log('[tv] validation response:', res.status);
             if (res.ok) {
               session = parsed;
-              console.log('[tv] REUSING session:', session.code);
-              
             } else {
-                console.log('[tv] stored session invalid, removing');
               localStorage.removeItem(SESSION_KEY);
             }
-          } catch (err) {
-            console.log('[tv] error during validation:', err);
+          } catch {
             localStorage.removeItem(SESSION_KEY);
           }
         }
 
-        // No valid existing session → create a new one
         if (!session) {
-          console.log('[tv] CREATING new session');
           session = await createSession();
           localStorage.setItem(SESSION_KEY, JSON.stringify(session));
         }
@@ -137,7 +122,6 @@ export default function TvPage() {
         });
 
         socket.on('connect_error', (err) => {
-          console.error('[tv] connect_error:', err.message);
           if (mounted) {
             setError(err.message);
             setStatus('error');
@@ -171,8 +155,35 @@ export default function TvPage() {
           setBadgeKey((k) => k + 1);
           resetIdleTimer();
         });
+
+        // Volume control from Remote
+        socket.on('volume_change', ({ direction }) => {
+          if (!mounted || !playerRef.current) return;
+          const player = playerRef.current;
+          const current = typeof player.getVolume === 'function' ? player.getVolume() : volume;
+          const next = direction === 'up'
+            ? Math.min(100, current + 10)
+            : Math.max(0, current - 10);
+          player.setVolume(next);
+          setVolume(next);
+          if (next > 0 && muted) {
+            player.unMute();
+            setMuted(false);
+          }
+        });
+
+        socket.on('mute_toggle', () => {
+          if (!mounted || !playerRef.current) return;
+          const player = playerRef.current;
+          if (player.isMuted && player.isMuted()) {
+            player.unMute();
+            setMuted(false);
+          } else {
+            player.mute();
+            setMuted(true);
+          }
+        });
       } catch (err) {
-        console.error('[tv] setup failed:', err);
         if (mounted) {
           setError(err.message);
           setStatus('error');
@@ -190,7 +201,7 @@ export default function TvPage() {
     };
   }, []);
 
-  // ---- Video lifecycle handlers ----
+  // ---- Video lifecycle ----
   const handleVideoEnded = async () => {
     const ch = channelRef.current;
     if (ch) await tune(ch.number);
@@ -200,18 +211,23 @@ export default function TvPage() {
     const ch = channelRef.current;
     const broken = currentVideo;
     if (broken && ch) {
-      console.warn(
-        `[tv] video ${broken.youtubeId} broken (${errorCode}), skipping`
-      );
       await markVideoBroken(ch.number, broken.youtubeId, errorCode);
       await tune(ch.number);
+    }
+  };
+
+  // Capture player ref when YouTubePlayer reports ready
+  const handlePlayerReady = (player) => {
+    playerRef.current = player;
+    if (typeof player.setVolume === 'function') {
+      player.setVolume(volume);
     }
   };
 
   // ---- Render ----
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
-      {/* Initializing / Error / Waiting / Idle-disconnected (full-screen states) */}
+      {/* Non-paired full-screen states */}
       {status !== 'paired' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <p className="text-slate-500 text-sm uppercase tracking-widest mb-4">
@@ -253,42 +269,85 @@ export default function TvPage() {
         </div>
       )}
 
-      {/* Paired state with video — full player + overlays */}
+      {/* Paired state — TV-bezeled player */}
       {status === 'paired' && currentVideo && (
-        <>
-          <YouTubePlayer
-            videoId={currentVideo.youtubeId}
-            startSeconds={currentVideo.offsetSec}
-            onEnded={handleVideoEnded}
-            onError={handleVideoError}
-          />
-          <CrtOverlay enabled={crtEnabled} />
-          {currentChannel && (
-            <ChannelBadge
-              key={badgeKey}
-              number={currentChannel.number}
-              name={currentChannel.name}
-            />
-          )}
+        <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-8">
+          {/* TV body (plastic bezel) */}
+          <div
+            className="
+              relative w-full max-w-7xl aspect-video
+              bg-gradient-to-b from-slate-800 via-slate-900 to-black
+              rounded-[2rem] sm:rounded-[3rem]
+              p-4 sm:p-8
+              shadow-[0_30px_80px_-15px_rgba(233,69,96,0.25),0_0_0_1px_rgba(255,255,255,0.05)]
+              border border-slate-700
+            "
+          >
+            {/* Inner screen with inset shadow */}
+            <div
+              className="
+                relative w-full h-full
+                rounded-2xl overflow-hidden
+                bg-black
+                shadow-[inset_0_0_40px_rgba(0,0,0,0.9),inset_0_0_8px_rgba(255,255,255,0.05)]
+                ring-1 ring-slate-950
+              "
+            >
+              <YouTubePlayer
+                videoId={currentVideo.youtubeId}
+                startSeconds={currentVideo.offsetSec}
+                onEnded={handleVideoEnded}
+                onError={handleVideoError}
+                onReady={handlePlayerReady}
+              />
+              <CrtOverlay enabled={crtEnabled} />
 
-          {/* Subtle CRT toggle in corner */}
+              {/* Mute indicator */}
+              {muted && (
+                <div className="absolute top-4 left-4 z-20 bg-black/70 backdrop-blur-sm border border-red-500 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <span className="text-red-500 text-lg">🔇</span>
+                  <span className="text-red-400 text-xs font-bold uppercase tracking-widest">Muted</span>
+                </div>
+              )}
+
+              {currentChannel && (
+                <ChannelBadge
+                  key={badgeKey}
+                  number={currentChannel.number}
+                  name={currentChannel.name}
+                />
+              )}
+            </div>
+
+            {/* Brand label below screen */}
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 text-center">
+              <p className="text-slate-600 text-[10px] sm:text-xs font-bold tracking-[0.3em] uppercase">
+                ReLive<span className="text-red-500">TV</span>
+              </p>
+            </div>
+
+            {/* Power LED */}
+            <div className="absolute bottom-3 right-6 w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)] animate-pulse" />
+          </div>
+
+          {/* CRT toggle — floating outside the TV */}
           <button
             onClick={toggleCrt}
-            className="absolute bottom-4 right-4 z-30 text-slate-600 hover:text-slate-300 text-xs"
+            className="absolute bottom-4 right-4 z-30 text-slate-700 hover:text-slate-400 text-xs transition-colors"
           >
             CRT: {crtEnabled ? 'on' : 'off'}
           </button>
-        </>
+        </div>
       )}
 
-      {/* Paired but still loading first video */}
+      {/* Tuning placeholder */}
       {status === 'paired' && !currentVideo && (
         <div className="absolute inset-0 flex items-center justify-center">
           <p className="text-slate-400">Tuning in…</p>
         </div>
       )}
 
-      {/* Idle prompt overlay (shown above everything when idle hits) */}
+      {/* Idle prompt */}
       {idlePrompt && (
         <div className="absolute inset-0 z-30 bg-black/80 flex items-center justify-center">
           <div className="bg-slate-800 rounded-2xl p-8 max-w-md text-center mx-4">

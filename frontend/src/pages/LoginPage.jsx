@@ -16,7 +16,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await signIn(email, password);
-      navigate('/tv');
+      navigate('/');
     } catch (err) {
       setError(err.message ?? 'Sign in failed');
     } finally {
