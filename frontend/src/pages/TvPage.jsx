@@ -9,6 +9,7 @@ import { connectSocket, disconnectSocket } from '../lib/socket';
 import YouTubePlayer from '../components/YouTubePlayer';
 import ChannelBadge from '../components/ChannelBadge';
 import CrtOverlay from '../components/CrtOverlay';
+import { enterFullscreen, exitFullscreen, onFullscreenChange } from '../lib/fullscreen';
 
 const SESSION_KEY = 'rlt-tv-session';
 const IDLE_MS = 2 * 60 * 60 * 1000;
@@ -24,6 +25,7 @@ export default function TvPage() {
   const [idlePrompt, setIdlePrompt] = useState(false);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(70);
+  const [needsFullscreenClick, setNeedsFullscreenClick] = useState(false);
 
   const channelRef = useRef(null);
   const idleTimerRef = useRef(null);
@@ -53,6 +55,7 @@ export default function TvPage() {
         localStorage.removeItem(SESSION_KEY);
         setIdlePrompt(false);
         setStatus('idle-disconnected');
+        exitFullscreen();
       }, PROMPT_GRACE_MS);
     }, IDLE_MS);
   };
@@ -76,6 +79,15 @@ export default function TvPage() {
       setError(err.message);
     }
   };
+
+  // ---- Track fullscreen changes (handles Esc key) ----
+  useEffect(() => {
+    const cleanup = onFullscreenChange((isFs) => {
+      // If user manually exited via Esc, hide any prompt
+      if (isFs) setNeedsFullscreenClick(false);
+    });
+    return cleanup;
+  }, []);
 
   // ---- Session + socket setup ----
   useEffect(() => {
@@ -135,11 +147,18 @@ export default function TvPage() {
           if (!channelRef.current) {
             await tune(1);
           }
+          // Try to go fullscreen — may fail without user gesture in some browsers
+          const success = await enterFullscreen();
+          if (!success && mounted) {
+            setNeedsFullscreenClick(true);
+          }
         });
 
         socket.on('peer-disconnected', ({ role }) => {
           if (mounted && role === 'remote') {
             setStatus('waiting');
+            setNeedsFullscreenClick(false);
+            exitFullscreen();
           }
         });
 
@@ -198,6 +217,7 @@ export default function TvPage() {
       disconnectSocket();
       clearTimeout(idleTimerRef.current);
       clearTimeout(promptTimerRef.current);
+      exitFullscreen();
     };
   }, []);
 
@@ -216,7 +236,6 @@ export default function TvPage() {
     }
   };
 
-  // Capture player ref when YouTubePlayer reports ready
   const handlePlayerReady = (player) => {
     playerRef.current = player;
     if (typeof player.setVolume === 'function') {
@@ -345,6 +364,28 @@ export default function TvPage() {
         <div className="absolute inset-0 flex items-center justify-center">
           <p className="text-slate-400">Tuning in…</p>
         </div>
+      )}
+
+      {/* Fullscreen click prompt — shows when auto-fullscreen failed */}
+      {needsFullscreenClick && (
+        <button
+          onClick={async () => {
+            const ok = await enterFullscreen();
+            if (ok) setNeedsFullscreenClick(false);
+          }}
+          className="
+            absolute inset-0 z-40
+            bg-black/70 backdrop-blur-sm
+            flex items-center justify-center
+            cursor-pointer
+          "
+        >
+          <div className="text-center">
+            <p className="text-6xl mb-4">⛶</p>
+            <p className="text-2xl text-white font-semibold">Click to enter fullscreen</p>
+            <p className="text-sm text-slate-400 mt-2">For the best TV experience</p>
+          </div>
+        </button>
       )}
 
       {/* Idle prompt */}
