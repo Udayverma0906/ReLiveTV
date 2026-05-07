@@ -3,6 +3,55 @@ import { env } from './config/env.js';
 import { supabase } from './lib/supabase.js';
 import { prisma } from './lib/prisma.js';
 
+/**
+ * Get the current scheduled video for a channel.
+ * Falls back to a random pool pick if the schedule has nothing for now.
+ * Same shape as REST /api/channels/:id/current — single source of truth.
+ */
+async function getCurrentVideoForChannel(channelId) {
+  const now = new Date();
+
+  // Schedule lookup (Step 5)
+  const entry = await prisma.scheduleEntry.findFirst({
+    where: {
+      channelId,
+      startTime: { lte: now },
+      endTime: { gt: now },
+    },
+  });
+
+  if (entry) {
+    return {
+      video: {
+        youtubeId: entry.videoYoutubeId,
+        title: entry.title,
+        durationSec: entry.durationSec,
+      },
+      offsetSec: Math.floor((now - entry.startTime) / 1000),
+      synced: true,
+    };
+  }
+
+  // Fallback: schedule has no entry covering "now" — pick a random pool video
+  const candidates = await prisma.videoPool.findMany({
+    where: { channelId, isBroken: false },
+    select: { youtubeId: true, title: true, durationSec: true },
+  });
+
+  if (candidates.length === 0) return null;
+
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  return {
+    video: {
+      youtubeId: pick.youtubeId,
+      title: pick.title,
+      durationSec: pick.durationSec,
+    },
+    offsetSec: 0,         // start at beginning, not random
+    synced: false,
+  };
+}
+
 export function createSocketServer(httpServer) {
   const io = new Server(httpServer, {
     cors: {
@@ -12,9 +61,6 @@ export function createSocketServer(httpServer) {
   });
 
   // ---- Connection-time auth ----
-  // Both TV and Remote must provide { sessionCode, role, token? }
-  // - role 'tv' requires a valid auth token
-  // - role 'remote' just needs the code
   io.use(async (socket, next) => {
     try {
       const { sessionCode, role, token } = socket.handshake.auth || {};
@@ -33,7 +79,6 @@ export function createSocketServer(httpServer) {
         return next(new Error('Session expired or invalid'));
       }
 
-      // TV must be the same user who created the session
       if (role === 'tv') {
         if (!token) {
           return next(new Error('TV requires auth token'));
@@ -48,7 +93,6 @@ export function createSocketServer(httpServer) {
         socket.data.user = data.user;
       }
 
-      // Attach session info to socket
       socket.data.sessionCode = session.code;
       socket.data.sessionId = session.id;
       socket.data.role = role;
@@ -66,10 +110,8 @@ export function createSocketServer(httpServer) {
 
     console.log(`[socket] ${role} connected: ${socket.id} -> ${room}`);
 
-    // Join the session room
     await socket.join(room);
 
-    // Update DB with this socket's ID
     const update = role === 'tv'
       ? { tvSocketId: socket.id }
       : { remoteSocketId: socket.id };
@@ -78,10 +120,8 @@ export function createSocketServer(httpServer) {
       data: { ...update, lastActivity: new Date() },
     });
 
-    // Notify the room
     socket.to(room).emit('peer-connected', { role });
 
-    // If both sides are now connected, emit 'paired' to both
     const session = await prisma.session.findUnique({
       where: { id: sessionId },
       select: { tvSocketId: true, remoteSocketId: true },
@@ -95,7 +135,6 @@ export function createSocketServer(httpServer) {
       console.log(`[socket] ${role} disconnected: ${socket.id} (${reason})`);
 
       if (role === 'tv') {
-        // Don't immediately clear tvSocketId — leave session in 'reconnect window'
         try {
           await prisma.session.update({
             where: { id: sessionId },
@@ -114,7 +153,7 @@ export function createSocketServer(httpServer) {
       }
     });
 
-    // ---- Channel change events (Step 7) ----
+    // ---- Channel change events ----
     socket.on('channel_change', async (payload) => {
       if (role !== 'remote') return;
 
@@ -155,17 +194,12 @@ export function createSocketServer(httpServer) {
           return;
         }
 
-        const candidates = await prisma.videoPool.findMany({
-          where: { channelId: channel.id, isBroken: false },
-          select: { youtubeId: true, title: true, durationSec: true },
-        });
-        if (candidates.length === 0) {
+        // ---- Step 5: schedule-aware video lookup ----
+        const result = await getCurrentVideoForChannel(channel.id);
+        if (!result) {
           socket.emit('error_message', { message: `No videos for ${channel.name}` });
           return;
         }
-
-        const pick = candidates[Math.floor(Math.random() * candidates.length)];
-        const offsetSec = Math.floor(Math.random() * Math.max(1, pick.durationSec - 30));
 
         await prisma.session.update({
           where: { id: sessionId },
@@ -174,12 +208,8 @@ export function createSocketServer(httpServer) {
 
         io.to(room).emit('tune', {
           channel,
-          video: {
-            youtubeId: pick.youtubeId,
-            title: pick.title,
-            durationSec: pick.durationSec,
-          },
-          offsetSec,
+          video: result.video,
+          offsetSec: result.offsetSec,
         });
       } catch (err) {
         console.error('[socket.channel_change] error:', err);
@@ -194,16 +224,15 @@ export function createSocketServer(httpServer) {
     });
 
     // ---- Volume + mute relay ----
-socket.on('volume_change', (payload) => {
-  if (role !== 'remote') return;
-  // Just forward to TV in the same room
-  socket.to(room).emit('volume_change', payload);
-});
+    socket.on('volume_change', (payload) => {
+      if (role !== 'remote') return;
+      socket.to(room).emit('volume_change', payload);
+    });
 
-socket.on('mute_toggle', () => {
-  if (role !== 'remote') return;
-  socket.to(room).emit('mute_toggle');
-});
+    socket.on('mute_toggle', () => {
+      if (role !== 'remote') return;
+      socket.to(room).emit('mute_toggle');
+    });
 
     socket.on('ping', () => socket.emit('pong', { time: Date.now() }));
   });

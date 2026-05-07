@@ -5,6 +5,7 @@ import healthRouter from './routes/health.js';
 import meRouter from './routes/me.js';
 import sessionsRouter from './routes/sessions.js';
 import channelsRouter from './routes/channels.js';
+import adminRouter from './routes/admin.js';
 
 export function createApp() {
   const app = express();
@@ -25,6 +26,7 @@ app.use(cors({
   app.use('/me', meRouter);
   app.use('/api/sessions', sessionsRouter);
   app.use('/api/channels', channelsRouter);
+  app.use('/api/admin', adminRouter);
 
   app.use((req, res) => {
     res.status(404).json({ error: 'Not found' });
