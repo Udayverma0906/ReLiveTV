@@ -6,20 +6,29 @@
  * - More search terms = more variety. Each term costs 100 quota units.
  * - Duration filters in seconds. Be realistic about content lengths.
  * - targetCount is per channel. Script stops searching once met.
+ *
+ * Embed-blocking notes:
+ * - NFL, NBA, MLB, FIFA, and most major US sports block off-YouTube embeds
+ * - Music labels (Sony, UMG, Warner) often block; live sessions and indie are safer
+ * - Use channel-specific or niche queries to avoid hitting blocked mainstream content
  */
 
 export const channelConfigs = {
   comedy: {
     searches: [
       'stand up comedy clip',
-      'late night comedy bit',
-      'comedy sketch funny',
+      'late night monologue jimmy fallon',
+      'late night seth meyers a closer look',
+      'snl sketch full episode',
       'tim robinson sketch',
-      'key and peele',
+      'key and peele sketch',
+      'i think you should leave',
+      'comedy bang bang',
+      'conan remembers',
     ],
-    minDurationSec: 60,        // skip shorts
-    maxDurationSec: 900,       // skip 15+ min specials
-    targetCount: 25,
+    minDurationSec: 60,
+    maxDurationSec: 1200,        // bumped to allow longer late-night segments
+    targetCount: 30,
   },
 
   crime: {
@@ -27,50 +36,67 @@ export const channelConfigs = {
       'true crime documentary short',
       'cold case solved explained',
       'unsolved mystery documentary',
-      'true crime case file',
-      'investigative crime story',
+      'crime investigation story',
+      'serial killer documentary',
+      'forensic files episode',
+      'criminal podcast story',
+      'lemmino crime',
+      'murder mystery solved',
     ],
-    minDurationSec: 600,       // crime content is long-form
-    maxDurationSec: 2700,      // up to 45 min
-    targetCount: 25,
+    minDurationSec: 600,
+    maxDurationSec: 2700,
+    targetCount: 30,
   },
 
   news: {
     searches: [
-      'world news today',
-      'breaking news report',
-      'tech news weekly',
+      'dw news daily briefing',
+      'al jazeera english news',
+      'bbc news report',
+      'pbs newshour segment',
+      'wsj news explainer',
+      'vox explained news',
+      'tech news today verge',
       'science news explained',
-      'business news headlines',
+      'business insider report',
     ],
     minDurationSec: 120,
     maxDurationSec: 1200,
-    targetCount: 25,
+    targetCount: 30,
   },
 
   music: {
     searches: [
-      'npr tiny desk concert',
-      'live music performance acoustic',
-      'live concert performance hd',
+      'tiny desk concert npr',
+      'audiotree live session',
+      'kexp full performance',
+      'sofar sounds live',
       'colors show live music',
-      'kexp live performance',
+      'acoustic session live',
+      'live in studio performance',
+      'mahogany sessions live',
+      'jam in the van session',
     ],
     minDurationSec: 180,
     maxDurationSec: 1800,
-    targetCount: 25,
+    targetCount: 30,
   },
 
   sports: {
     searches: [
-      'sports highlights compilation',
-      'top 10 sports moments',
-      'best sports plays',
-      'classic match highlights',
-      'amazing sports goals',
+      'olympics highlights moments',
+      'extreme sports compilation',
+      'parkour amazing moments',
+      'skateboarding tricks compilation',
+      'rock climbing competition',
+      'chess world championship match',
+      'table tennis world championship',
+      'snooker century break',
+      'cricket great moments',
+      'amazing chess puzzle solved',
     ],
     minDurationSec: 180,
     maxDurationSec: 1500,
-    targetCount: 25,
+    targetCount: 30,
   },
 };

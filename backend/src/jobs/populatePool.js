@@ -44,18 +44,13 @@ async function fetchVideoDetails(videoIds) {
 }
 
 async function populateChannel(channel, config) {
-  const existing = await prisma.videoPool.findMany({
-    where: { channelId: channel.id },
-    select: { youtubeId: true },
-  });
-  const existingIds = new Set(existing.map((v) => v.youtubeId));
-
+  // Search across all queries, dedupe candidates
   const candidates = new Map();
   for (const query of config.searches) {
     try {
       const results = await searchVideos(query, 25);
       for (const r of results) {
-        if (!existingIds.has(r.youtubeId) && !candidates.has(r.youtubeId)) {
+        if (!candidates.has(r.youtubeId)) {
           candidates.set(r.youtubeId, r);
         }
       }
@@ -64,6 +59,7 @@ async function populateChannel(channel, config) {
     }
   }
 
+  // Batch-fetch details for all candidates
   const candidateIds = Array.from(candidates.keys());
   const details = [];
   for (let i = 0; i < candidateIds.length; i += 50) {
@@ -72,6 +68,7 @@ async function populateChannel(channel, config) {
     details.push(...batchDetails);
   }
 
+  // Filter: must be embeddable, public, within duration range
   const filtered = details
     .filter((d) => d.embeddable && d.privacyStatus === 'public')
     .filter((d) => d.durationSec >= config.minDurationSec && d.durationSec <= config.maxDurationSec)
@@ -83,14 +80,22 @@ async function populateChannel(channel, config) {
       durationSec: d.durationSec,
     }));
 
-  if (filtered.length === 0) return { added: 0 };
+  // Safety: if filters rejected everything, keep existing pool rather than wipe-empty
+  if (filtered.length === 0) {
+    console.warn(`[populate] no eligible videos found for ${channel.name}, keeping existing pool`);
+    return { added: 0, removed: 0 };
+  }
 
-  const result = await prisma.videoPool.createMany({
-    data: filtered,
-    skipDuplicates: true,
-  });
+  // ---- Wipe and replace in transaction ----
+  const result = await prisma.$transaction([
+    prisma.videoPool.deleteMany({ where: { channelId: channel.id } }),
+    prisma.videoPool.createMany({ data: filtered }),
+  ]);
 
-  return { added: result.count };
+  return {
+    added: result[1].count,
+    removed: result[0].count,
+  };
 }
 
 export async function populateAllChannels() {
@@ -103,8 +108,15 @@ export async function populateAllChannels() {
       continue;
     }
     const result = await populateChannel(channel, config);
-    results.push({ channel: channel.number, name: channel.name, added: result.added });
-    console.log(`[populate] channel ${channel.number} (${channel.name}): ${result.added} added`);
+    results.push({
+      channel: channel.number,
+      name: channel.name,
+      removed: result.removed,
+      added: result.added,
+    });
+    console.log(
+      `[populate] channel ${channel.number} (${channel.name}): -${result.removed} removed, +${result.added} added`
+    );
   }
   return results;
 }
