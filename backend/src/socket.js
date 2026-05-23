@@ -11,7 +11,6 @@ import { prisma } from './lib/prisma.js';
 async function getCurrentVideoForChannel(channelId) {
   const now = new Date();
 
-  // Schedule lookup (Step 5)
   const entry = await prisma.scheduleEntry.findFirst({
     where: {
       channelId,
@@ -21,6 +20,16 @@ async function getCurrentVideoForChannel(channelId) {
   });
 
   if (entry) {
+    // Fetch the next scheduled entry too
+    const nextEntry = await prisma.scheduleEntry.findFirst({
+      where: {
+        channelId,
+        startTime: { gte: entry.endTime },
+      },
+      orderBy: { startTime: 'asc' },
+      select: { title: true, startTime: true, endTime: true },
+    });
+
     return {
       video: {
         youtubeId: entry.videoYoutubeId,
@@ -29,10 +38,12 @@ async function getCurrentVideoForChannel(channelId) {
       },
       offsetSec: Math.floor((now - entry.startTime) / 1000),
       synced: true,
+      endTime: entry.endTime,
+      next: nextEntry,
     };
   }
 
-  // Fallback: schedule has no entry covering "now" — pick a random pool video
+  // Fallback: random pool pick at offset 0
   const candidates = await prisma.videoPool.findMany({
     where: { channelId, isBroken: false },
     select: { youtubeId: true, title: true, durationSec: true },
@@ -42,13 +53,11 @@ async function getCurrentVideoForChannel(channelId) {
 
   const pick = candidates[Math.floor(Math.random() * candidates.length)];
   return {
-    video: {
-      youtubeId: pick.youtubeId,
-      title: pick.title,
-      durationSec: pick.durationSec,
-    },
-    offsetSec: 0,         // start at beginning, not random
+    video: { youtubeId: pick.youtubeId, title: pick.title, durationSec: pick.durationSec },
+    offsetSec: 0,
     synced: false,
+    endTime: null,
+    next: null,
   };
 }
 
@@ -221,6 +230,8 @@ if (session.currentChannelId) {
           channel,
           video: result.video,
           offsetSec: result.offsetSec,
+          endTime: result.endTime,
+          next: result.next,
         });
       } catch (err) {
         console.error('[socket.channel_change] error:', err);

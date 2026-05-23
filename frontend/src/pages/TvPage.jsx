@@ -1,24 +1,29 @@
-import { useEffect, useState, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import { useEffect, useState, useRef } from "react";
+import { supabase } from "../lib/supabase";
 import {
   createSession,
   getCurrentVideoForChannel,
   markVideoBroken,
-} from '../lib/api';
-import { connectSocket, disconnectSocket } from '../lib/socket';
-import YouTubePlayer from '../components/YouTubePlayer';
-import ChannelBadge from '../components/ChannelBadge';
-import CrtOverlay from '../components/CrtOverlay';
-import { enterFullscreen, exitFullscreen, onFullscreenChange } from '../lib/fullscreen';
-import VolumeBadge from '../components/VolumeBadge';
+} from "../lib/api";
+import { connectSocket, disconnectSocket } from "../lib/socket";
+import YouTubePlayer from "../components/YouTubePlayer";
+import ChannelBadge from "../components/ChannelBadge";
+import CrtOverlay from "../components/CrtOverlay";
+import {
+  enterFullscreen,
+  exitFullscreen,
+  onFullscreenChange,
+} from "../lib/fullscreen";
+import VolumeBadge from "../components/VolumeBadge";
+import InfoPanel from "../components/InfoPanel";
 
-const SESSION_KEY = 'rlt-tv-session';
+const SESSION_KEY = "rlt-tv-session";
 const IDLE_MS = 2 * 60 * 60 * 1000;
 const PROMPT_GRACE_MS = 30 * 1000;
 
 export default function TvPage() {
   const [code, setCode] = useState(null);
-  const [status, setStatus] = useState('initializing');
+  const [status, setStatus] = useState("initializing");
   const [error, setError] = useState(null);
   const [currentChannel, setCurrentChannel] = useState(null);
   const [currentVideo, setCurrentVideo] = useState(null);
@@ -34,15 +39,17 @@ export default function TvPage() {
   const idleTimerRef = useRef(null);
   const promptTimerRef = useRef(null);
   const playerRef = useRef(null);
+  const [infoPanel, setInfoPanel] = useState(null);
+  const [infoPanelKey, setInfoPanelKey] = useState(0);
 
   const [crtEnabled, setCrtEnabled] = useState(() => {
-    return localStorage.getItem('rlt-crt') !== 'off';
+    return localStorage.getItem("rlt-crt") !== "off";
   });
 
   const toggleCrt = () => {
     const next = !crtEnabled;
     setCrtEnabled(next);
-    localStorage.setItem('rlt-crt', next ? 'on' : 'off');
+    localStorage.setItem("rlt-crt", next ? "on" : "off");
   };
 
   // ---- Idle timer management ----
@@ -57,7 +64,7 @@ export default function TvPage() {
         disconnectSocket();
         localStorage.removeItem(SESSION_KEY);
         setIdlePrompt(false);
-        setStatus('idle-disconnected');
+        setStatus("idle-disconnected");
         exitFullscreen();
       }, PROMPT_GRACE_MS);
     }, IDLE_MS);
@@ -77,8 +84,16 @@ export default function TvPage() {
       });
       channelRef.current = data.channel;
       setBadgeKey((k) => k + 1);
+      // NEW: info panel
+      setInfoPanel({
+        channel: data.channel,
+        currentTitle: data.video.title,
+        currentEndTime: data.endTime,
+        next: data.next,
+      });
+      setInfoPanelKey((k) => k + 1);
     } catch (err) {
-      console.error('[tv] tune failed:', err);
+      console.error("[tv] tune failed:", err);
       setError(err.message);
     }
   };
@@ -93,12 +108,12 @@ export default function TvPage() {
   }, []);
 
   useEffect(() => {
-  mutedRef.current = muted;
-}, [muted]);
+    mutedRef.current = muted;
+  }, [muted]);
 
-useEffect(() => {
-  volumeRef.current = volume;
-}, [volume]);
+  useEffect(() => {
+    volumeRef.current = volume;
+  }, [volume]);
 
   // ---- Session + socket setup ----
   useEffect(() => {
@@ -113,7 +128,7 @@ useEffect(() => {
           try {
             const parsed = JSON.parse(stored);
             const res = await fetch(
-              `${import.meta.env.VITE_API_URL}/api/sessions/${parsed.code}`
+              `${import.meta.env.VITE_API_URL}/api/sessions/${parsed.code}`,
             );
             if (res.ok) {
               session = parsed;
@@ -132,7 +147,7 @@ useEffect(() => {
 
         if (!mounted) return;
         setCode(session.code);
-        setStatus('waiting');
+        setStatus("waiting");
 
         const {
           data: { session: authSession },
@@ -140,20 +155,20 @@ useEffect(() => {
 
         const socket = connectSocket({
           sessionCode: session.code,
-          role: 'tv',
+          role: "tv",
           token: authSession?.access_token,
         });
 
-        socket.on('connect_error', (err) => {
+        socket.on("connect_error", (err) => {
           if (mounted) {
             setError(err.message);
-            setStatus('error');
+            setStatus("error");
           }
         });
 
-        socket.on('paired', async () => {
+        socket.on("paired", async () => {
           if (!mounted) return;
-          setStatus('paired');
+          setStatus("paired");
           resetIdleTimer();
           if (!channelRef.current) {
             await tune(1);
@@ -165,15 +180,15 @@ useEffect(() => {
           }
         });
 
-        socket.on('peer-disconnected', ({ role }) => {
-          if (mounted && role === 'remote') {
-            setStatus('waiting');
+        socket.on("peer-disconnected", ({ role }) => {
+          if (mounted && role === "remote") {
+            setStatus("waiting");
             setNeedsFullscreenClick(false);
             exitFullscreen();
           }
         });
 
-        socket.on('tune', ({ channel, video, offsetSec }) => {
+        socket.on("tune", ({ channel, video, offsetSec, endTime, next }) => {
           if (!mounted) return;
           setCurrentChannel(channel);
           setCurrentVideo({
@@ -183,17 +198,29 @@ useEffect(() => {
           });
           channelRef.current = channel;
           setBadgeKey((k) => k + 1);
+          // NEW: info panel
+          setInfoPanel({
+            channel,
+            currentTitle: video.title,
+            currentEndTime: endTime,
+            next,
+          });
+          setInfoPanelKey((k) => k + 1);
           resetIdleTimer();
         });
 
         // Volume control from Remote
-        socket.on('volume_change', ({ direction }) => {
+        socket.on("volume_change", ({ direction }) => {
           if (!mounted || !playerRef.current) return;
           const player = playerRef.current;
-          const current = typeof player.getVolume === 'function' ? player.getVolume() : volume;
-          const next = direction === 'up'
-            ? Math.min(100, current + 10)
-            : Math.max(0, current - 10);
+          const current =
+            typeof player.getVolume === "function"
+              ? player.getVolume()
+              : volume;
+          const next =
+            direction === "up"
+              ? Math.min(100, current + 10)
+              : Math.max(0, current - 10);
           player.setVolume(next);
           setVolume(next);
           setVolumeBadgeKey((k) => k + 1);
@@ -203,7 +230,7 @@ useEffect(() => {
           }
         });
 
-        socket.on('mute_toggle', () => {
+        socket.on("mute_toggle", () => {
           if (!mounted || !playerRef.current) return;
           const player = playerRef.current;
           if (player.isMuted && player.isMuted()) {
@@ -218,7 +245,7 @@ useEffect(() => {
       } catch (err) {
         if (mounted) {
           setError(err.message);
-          setStatus('error');
+          setStatus("error");
         }
       }
     }
@@ -251,7 +278,7 @@ useEffect(() => {
 
   const handlePlayerReady = (player) => {
     playerRef.current = player;
-    if (typeof player.setVolume === 'function') {
+    if (typeof player.setVolume === "function") {
       player.setVolume(volume);
     }
   };
@@ -361,6 +388,16 @@ useEffect(() => {
                   key={volumeBadgeKey}
                   volume={volume}
                   muted={muted}
+                />
+              )}
+
+              {infoPanel && infoPanelKey > 0 && (
+                <InfoPanel
+                  key={infoPanelKey}
+                  channel={infoPanel.channel}
+                  currentTitle={infoPanel.currentTitle}
+                  currentEndTime={infoPanel.currentEndTime}
+                  next={infoPanel.next}
                 />
               )}
             </div>

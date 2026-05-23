@@ -64,6 +64,8 @@ router.get('/:idOrNumber/current', async (req, res) => {
       video: { youtubeId: pick.youtubeId, title: pick.title, durationSec: pick.durationSec },
       offsetSec: 0,
       synced: false,
+      endTime: entry.endTime,
+      next: nextEntry,
     });
   }
 
