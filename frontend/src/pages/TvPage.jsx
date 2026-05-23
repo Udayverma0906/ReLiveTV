@@ -10,6 +10,7 @@ import YouTubePlayer from '../components/YouTubePlayer';
 import ChannelBadge from '../components/ChannelBadge';
 import CrtOverlay from '../components/CrtOverlay';
 import { enterFullscreen, exitFullscreen, onFullscreenChange } from '../lib/fullscreen';
+import VolumeBadge from '../components/VolumeBadge';
 
 const SESSION_KEY = 'rlt-tv-session';
 const IDLE_MS = 2 * 60 * 60 * 1000;
@@ -26,8 +27,10 @@ export default function TvPage() {
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(70);
   const [needsFullscreenClick, setNeedsFullscreenClick] = useState(false);
-
+  const [volumeBadgeKey, setVolumeBadgeKey] = useState(0);
   const channelRef = useRef(null);
+  const mutedRef = useRef(muted);
+  const volumeRef = useRef(volume);
   const idleTimerRef = useRef(null);
   const promptTimerRef = useRef(null);
   const playerRef = useRef(null);
@@ -88,6 +91,14 @@ export default function TvPage() {
     });
     return cleanup;
   }, []);
+
+  useEffect(() => {
+  mutedRef.current = muted;
+}, [muted]);
+
+useEffect(() => {
+  volumeRef.current = volume;
+}, [volume]);
 
   // ---- Session + socket setup ----
   useEffect(() => {
@@ -185,6 +196,7 @@ export default function TvPage() {
             : Math.max(0, current - 10);
           player.setVolume(next);
           setVolume(next);
+          setVolumeBadgeKey((k) => k + 1);
           if (next > 0 && muted) {
             player.unMute();
             setMuted(false);
@@ -200,6 +212,7 @@ export default function TvPage() {
           } else {
             player.mute();
             setMuted(true);
+            setVolumeBadgeKey((k) => k + 1);
           }
         });
       } catch (err) {
@@ -247,31 +260,35 @@ export default function TvPage() {
   return (
     <div className="min-h-screen bg-black text-white relative overflow-hidden">
       {/* Non-paired full-screen states */}
-      {status !== 'paired' && (
+      {status !== "paired" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <p className="text-slate-500 text-sm uppercase tracking-widest mb-4">
             ReLiveTV — Screen Mode
           </p>
 
-          {status === 'initializing' && (
+          {status === "initializing" && (
             <h1 className="text-3xl text-slate-400">Starting up…</h1>
           )}
 
-          {status === 'error' && (
+          {status === "error" && (
             <>
-              <h1 className="text-3xl text-red-500 mb-2">Something went wrong</h1>
+              <h1 className="text-3xl text-red-500 mb-2">
+                Something went wrong
+              </h1>
               <p className="text-slate-400">{error}</p>
             </>
           )}
 
-          {status === 'idle-disconnected' && (
+          {status === "idle-disconnected" && (
             <>
               <h1 className="text-3xl text-slate-300 mb-2">Session ended</h1>
-              <p className="text-slate-500">Refresh the page to start a new one.</p>
+              <p className="text-slate-500">
+                Refresh the page to start a new one.
+              </p>
             </>
           )}
 
-          {status === 'waiting' && code && (
+          {status === "waiting" && code && (
             <>
               <h1 className="text-2xl mb-6">Connect your phone as a remote</h1>
               <p className="text-slate-400 mb-4 text-sm">
@@ -289,7 +306,7 @@ export default function TvPage() {
       )}
 
       {/* Paired state — TV-bezeled player */}
-      {status === 'paired' && currentVideo && (
+      {status === "paired" && currentVideo && (
         <div className="absolute inset-0 flex items-center justify-center p-4 sm:p-8">
           {/* TV body (plastic bezel) */}
           <div
@@ -325,7 +342,9 @@ export default function TvPage() {
               {muted && (
                 <div className="absolute top-4 left-4 z-20 bg-black/70 backdrop-blur-sm border border-red-500 rounded-lg px-3 py-2 flex items-center gap-2">
                   <span className="text-red-500 text-lg">🔇</span>
-                  <span className="text-red-400 text-xs font-bold uppercase tracking-widest">Muted</span>
+                  <span className="text-red-400 text-xs font-bold uppercase tracking-widest">
+                    Muted
+                  </span>
                 </div>
               )}
 
@@ -334,6 +353,14 @@ export default function TvPage() {
                   key={badgeKey}
                   number={currentChannel.number}
                   name={currentChannel.name}
+                />
+              )}
+
+              {volumeBadgeKey > 0 && (
+                <VolumeBadge
+                  key={volumeBadgeKey}
+                  volume={volume}
+                  muted={muted}
                 />
               )}
             </div>
@@ -354,13 +381,13 @@ export default function TvPage() {
             onClick={toggleCrt}
             className="absolute bottom-4 right-4 z-30 text-slate-700 hover:text-slate-400 text-xs transition-colors"
           >
-            CRT: {crtEnabled ? 'on' : 'off'}
+            CRT: {crtEnabled ? "on" : "off"}
           </button>
         </div>
       )}
 
       {/* Tuning placeholder */}
-      {status === 'paired' && !currentVideo && (
+      {status === "paired" && !currentVideo && (
         <div className="absolute inset-0 flex items-center justify-center">
           <p className="text-slate-400">Tuning in…</p>
         </div>
@@ -382,8 +409,12 @@ export default function TvPage() {
         >
           <div className="text-center">
             <p className="text-6xl mb-4">⛶</p>
-            <p className="text-2xl text-white font-semibold">Click to enter fullscreen</p>
-            <p className="text-sm text-slate-400 mt-2">For the best TV experience</p>
+            <p className="text-2xl text-white font-semibold">
+              Click to enter fullscreen
+            </p>
+            <p className="text-sm text-slate-400 mt-2">
+              For the best TV experience
+            </p>
           </div>
         </button>
       )}

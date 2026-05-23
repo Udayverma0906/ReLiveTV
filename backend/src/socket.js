@@ -185,6 +185,17 @@ export function createSocketServer(httpServer) {
           return;
         }
 
+        // ↓ ADD THE NO-OP CHECK HERE ↓
+if (session.currentChannelId) {
+  const currentChannel = await prisma.channel.findUnique({
+    where: { id: session.currentChannelId },
+    select: { number: true },
+  });
+  if (currentChannel && currentChannel.number === newChannelNumber) {
+    return;
+  }
+}
+
         const channel = await prisma.channel.findUnique({
           where: { number: newChannelNumber },
           select: { id: true, number: true, name: true },
