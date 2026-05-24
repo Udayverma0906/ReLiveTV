@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+
 
 function formatTime(dateStr) {
   if (!dateStr) return '';
@@ -11,24 +11,17 @@ function formatTime(dateStr) {
 }
 
 export default function InfoPanel({ channel, currentTitle, currentEndTime, next }) {
-  const [fading, setFading] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => setFading(true), 5000);
-    return () => clearTimeout(t);
-  }, []);
 
   return (
     <div
-      className={`
-        absolute bottom-4 left-4 z-20
-        bg-black/85 backdrop-blur-md
-        border border-red-500/40 rounded-xl
-        overflow-hidden
-        transition-opacity duration-700
-        ${fading ? 'opacity-0' : 'opacity-100'}
-        max-w-md
-      `}
+className={`
+  absolute bottom-4 left-4 z-20
+  bg-black/85 backdrop-blur-md
+  border border-red-500/40 rounded-xl
+  overflow-hidden
+  max-w-md
+  animate-info-panel
+`}
     >
       {/* Channel header */}
       <div className="bg-red-600 text-white text-xs font-bold uppercase tracking-widest px-4 py-1.5">

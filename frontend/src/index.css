@@ -1,1 +1,31 @@
 @import "tailwindcss";
+
+@keyframes channel-badge-fade {
+  0% { opacity: 1; }
+  78% { opacity: 1; }    /* hold visible until 2.5s out of 3.2s total */
+  100% { opacity: 0; }
+}
+
+@keyframes volume-badge-fade {
+  0% { opacity: 1; }
+  72% { opacity: 1; }    /* hold visible until 1.8s out of 2.5s total */
+  100% { opacity: 0; }
+}
+
+.animate-channel-badge {
+  animation: channel-badge-fade 3.2s forwards ease-out;
+}
+
+.animate-volume-badge {
+  animation: volume-badge-fade 2.5s forwards ease-out;
+}
+
+@keyframes info-panel-fade {
+  0% { opacity: 1; }
+  87% { opacity: 1; }   /* hold visible until 5s out of 5.7s total */
+  100% { opacity: 0; }
+}
+
+.animate-info-panel {
+  animation: info-panel-fade 5.7s forwards ease-out;
+}
