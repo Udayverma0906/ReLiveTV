@@ -273,8 +273,8 @@ export default function RemotePage() {
             </span>
           </RemoteButton>
           <RemoteButton onClick={handlePowerOff} variant="power">
-            <span className="text-2xl leading-none">⏻</span>
-            <span className="text-[10px] mt-1 font-semibold tracking-wider">PWR</span>
+            <span className="text-2xl leading-none">📺</span>
+            <span className="text-[10px] mt-1 font-semibold tracking-wider">POWER</span>
           </RemoteButton>
         </div>
       </div>
