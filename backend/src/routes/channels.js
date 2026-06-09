@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { getCurrentVideoForChannel } from '../lib/scheduleLookup.js';
 
 const router = Router();
 
@@ -22,120 +23,46 @@ router.get('/', async (req, res) => {
   res.json(channels);
 });
 
-router.get('/:idOrNumber/current', async (req, res) => {
-  const { idOrNumber } = req.params;
-
-  const channelNumber = parseInt(idOrNumber, 10);
-  const where = !isNaN(channelNumber)
-    ? { number: channelNumber }
-    : { id: idOrNumber };
-
-  const channel = await prisma.channel.findUnique({
-    where,
-    select: { id: true, number: true, name: true },
-  });
-  if (!channel) {
-    return res.status(404).json({ error: 'Channel not found' });
-  }
-
-  // ---- Schedule lookup (Step 5) ----
-  const now = new Date();
-  const entry = await prisma.scheduleEntry.findFirst({
-    where: {
-      channelId: channel.id,
-      startTime: { lte: now },
-      endTime: { gt: now },
-    },
-  });
-
-  if (!entry) {
-    // Fallback: schedule has nothing for this moment (cron didn't run, etc.)
-    // Pick a random pool video so the channel doesn't break
-    const fallback = await prisma.videoPool.findMany({
-      where: { channelId: channel.id, isBroken: false },
-      select: { youtubeId: true, title: true, durationSec: true },
-    });
-    if (fallback.length === 0) {
-      return res.status(404).json({ error: 'No videos available' });
-    }
-    const pick = fallback[Math.floor(Math.random() * fallback.length)];
-    return res.json({
-      channel,
-      video: { youtubeId: pick.youtubeId, title: pick.title, durationSec: pick.durationSec },
-      offsetSec: 0,
-      synced: false,
-      endTime: entry.endTime,
-      next: nextEntry,
-    });
-  }
-
-  // Compute offset from schedule start
-  const offsetSec = Math.floor((now - entry.startTime) / 1000);
-
-  res.json({
-    channel,
-    video: {
-      youtubeId: entry.videoYoutubeId,
-      title: entry.title,
-      durationSec: entry.durationSec,
-    },
-    offsetSec,
-    synced: true,
-  });
-});
-
 /**
  * GET /api/channels/:idOrNumber/current
  * Returns the video that should be playing right now on this channel.
- *
- * STEP 5 NOTE: This currently picks a random video from the pool.
- * After Step 5, replace the implementation with a schedule lookup:
- *   SELECT video_youtube_id, start_time
- *   FROM schedule_entries
- *   WHERE channel_id = $1
- *     AND start_time <= NOW() AND end_time > NOW()
- *   LIMIT 1
+ * Uses the shared schedule lookup helper which skips broken entries.
  */
 router.get('/:idOrNumber/current', async (req, res) => {
-  const { idOrNumber } = req.params;
+  try {
+    const { idOrNumber } = req.params;
 
-  // Accept either UUID or channel number
-  const channelNumber = parseInt(idOrNumber, 10);
-  const where = !isNaN(channelNumber)
-    ? { number: channelNumber }
-    : { id: idOrNumber };
+    const channelNumber = parseInt(idOrNumber, 10);
+    const where = !isNaN(channelNumber)
+      ? { number: channelNumber }
+      : { id: idOrNumber };
 
-  const channel = await prisma.channel.findUnique({
-    where,
-    select: { id: true, number: true, name: true },
-  });
-  if (!channel) {
-    return res.status(404).json({ error: 'Channel not found' });
+    const channel = await prisma.channel.findUnique({
+      where,
+      select: { id: true, number: true, name: true },
+    });
+
+    if (!channel) {
+      return res.status(404).json({ error: 'Channel not found' });
+    }
+
+    const result = await getCurrentVideoForChannel(channel.id);
+    if (!result) {
+      return res.status(404).json({ error: 'No videos available for this channel' });
+    }
+
+    res.json({
+      channel,
+      video: result.video,
+      offsetSec: result.offsetSec,
+      synced: result.synced,
+      endTime: result.endTime,
+      next: result.next,
+    });
+  } catch (err) {
+    console.error('[channels] /current error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
-
-  // ---- TEMP: random pool pick (replace with schedule lookup in Step 5) ----
-  const candidates = await prisma.videoPool.findMany({
-    where: { channelId: channel.id, isBroken: false },
-    select: { youtubeId: true, title: true, durationSec: true },
-  });
-
-  if (candidates.length === 0) {
-    return res.status(404).json({ error: 'No videos available for this channel' });
-  }
-
-  const pick = candidates[Math.floor(Math.random() * candidates.length)];
-
-  res.json({
-    channel,
-    video: {
-      youtubeId: pick.youtubeId,
-      title: pick.title,
-      durationSec: pick.durationSec,
-    },
-    // Random offset to give a "tuning into a live channel" feel
-    // Step 5 will replace this with the real time-based offset
-    offsetSec: Math.floor(Math.random() * Math.max(1, pick.durationSec - 30)),
-  });
 });
 
 /**

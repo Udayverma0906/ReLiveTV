@@ -2,64 +2,13 @@ import { Server } from 'socket.io';
 import { env } from './config/env.js';
 import { supabase } from './lib/supabase.js';
 import { prisma } from './lib/prisma.js';
+import { getCurrentVideoForChannel } from './lib/scheduleLookup.js';
 
 /**
  * Get the current scheduled video for a channel.
  * Falls back to a random pool pick if the schedule has nothing for now.
  * Same shape as REST /api/channels/:id/current — single source of truth.
  */
-async function getCurrentVideoForChannel(channelId) {
-  const now = new Date();
-
-  const entry = await prisma.scheduleEntry.findFirst({
-    where: {
-      channelId,
-      startTime: { lte: now },
-      endTime: { gt: now },
-    },
-  });
-
-  if (entry) {
-    // Fetch the next scheduled entry too
-    const nextEntry = await prisma.scheduleEntry.findFirst({
-      where: {
-        channelId,
-        startTime: { gte: entry.endTime },
-      },
-      orderBy: { startTime: 'asc' },
-      select: { title: true, startTime: true, endTime: true },
-    });
-
-    return {
-      video: {
-        youtubeId: entry.videoYoutubeId,
-        title: entry.title,
-        durationSec: entry.durationSec,
-      },
-      offsetSec: Math.floor((now - entry.startTime) / 1000),
-      synced: true,
-      endTime: entry.endTime,
-      next: nextEntry,
-    };
-  }
-
-  // Fallback: random pool pick at offset 0
-  const candidates = await prisma.videoPool.findMany({
-    where: { channelId, isBroken: false },
-    select: { youtubeId: true, title: true, durationSec: true },
-  });
-
-  if (candidates.length === 0) return null;
-
-  const pick = candidates[Math.floor(Math.random() * candidates.length)];
-  return {
-    video: { youtubeId: pick.youtubeId, title: pick.title, durationSec: pick.durationSec },
-    offsetSec: 0,
-    synced: false,
-    endTime: null,
-    next: null,
-  };
-}
 
 export function createSocketServer(httpServer) {
   const io = new Server(httpServer, {
